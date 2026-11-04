@@ -102,6 +102,53 @@ class AutofillPipelineTest {
     }
 
     @Test
+    fun `clearDismissal ends dismissal and returns held response once`() {
+        val held = mock<android.view.inputmethod.InlineSuggestionsResponse>()
+        tracker.dismiss()
+        tracker.holdSuppressedResponse(held)
+
+        assertEquals(held, tracker.clearDismissal())
+        assertFalse(tracker.isDismissed())
+        assertNull(tracker.suppressedResponse)
+    }
+
+    @Test
+    fun `clearDismissal returns null when nothing held`() {
+        tracker.dismiss()
+
+        assertNull(tracker.clearDismissal())
+        assertFalse(tracker.isDismissed())
+    }
+
+    @Test
+    fun `dropSuppressedResponse discards held response`() {
+        tracker.dismiss()
+        tracker.holdSuppressedResponse(mock())
+        tracker.dropSuppressedResponse()
+
+        assertNull(tracker.clearDismissal())
+    }
+
+    @Test
+    fun `field change discards held response`() {
+        tracker.onFieldChanged(inputType = 1, imeOptions = 0, fieldId = 100, packageHash = 999)
+        tracker.dismiss()
+        tracker.holdSuppressedResponse(mock())
+
+        tracker.onFieldChanged(inputType = 1, imeOptions = 0, fieldId = 200, packageHash = 999)
+
+        assertNull(tracker.suppressedResponse)
+    }
+
+    @Test
+    fun `cleanup discards held response`() {
+        tracker.holdSuppressedResponse(mock())
+        tracker.cleanup()
+
+        assertNull(tracker.suppressedResponse)
+    }
+
+    @Test
     fun `onFieldChanged returns true for new field`() {
         val changed = tracker.onFieldChanged(inputType = 1, imeOptions = 0, fieldId = 100, packageHash = 999)
         assertTrue(changed)

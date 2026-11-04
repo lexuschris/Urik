@@ -37,13 +37,19 @@ class AutofillStateCoordinator(
         val suggestions = response.inlineSuggestions
 
         if (suggestions.isEmpty()) {
+            tracker.dropSuppressedResponse()
             serviceScope.launch(Dispatchers.Main) {
                 candidateBarController.forceClearAllSuggestions()
             }
             return false
         }
 
-        if (tracker.isDismissed()) return true
+        if (tracker.isDismissed()) {
+            // Typing dismissed the strip for this field. Keep the latest offer in case the
+            // user clears the field again (see onFieldEmptied).
+            tracker.holdSuppressedResponse(response)
+            return true
+        }
 
         if (!isViewReady) {
             tracker.bufferResponse(response)
@@ -58,6 +64,19 @@ class AutofillStateCoordinator(
         if (candidateBarController.clearAutofillIfShowing()) {
             tracker.dismiss()
         }
+    }
+
+    /**
+     * The field became empty again (e.g. the user backspaced over what they typed).
+     * Typing is no longer a reason to hide autofill, so end the dismissal and show the
+     * offer that arrived meanwhile, if any. Later responses display normally either way,
+     * so this works whether the framework's new response arrives before or after this call.
+     */
+    fun onFieldEmptied(isViewReady: Boolean) {
+        if (!tracker.isDismissed()) return
+        val held = tracker.clearDismissal() ?: return
+        if (held.inlineSuggestions.isEmpty()) return
+        if (isViewReady) displaySuggestions(held.inlineSuggestions) else tracker.bufferResponse(held)
     }
 
     fun cleanup() {
