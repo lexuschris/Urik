@@ -172,6 +172,75 @@ class AutofillStateCoordinatorTest {
     }
 
     @Test
+    fun `onInlineSuggestionsResponse when dismissed holds response for possible restore`() {
+        val response = mock<InlineSuggestionsResponse>()
+        whenever(response.inlineSuggestions).thenReturn(listOf(mock()))
+        whenever(tracker.isDismissed()).thenReturn(true)
+
+        coordinator.onInlineSuggestionsResponse(response, true)
+
+        verify(tracker).holdSuppressedResponse(response)
+    }
+
+    @Test
+    fun `onInlineSuggestionsResponse with empty suggestions drops held response`() {
+        val response = mock<InlineSuggestionsResponse>()
+        whenever(response.inlineSuggestions).thenReturn(emptyList())
+
+        coordinator.onInlineSuggestionsResponse(response, true)
+
+        verify(tracker).dropSuppressedResponse()
+    }
+
+    @Test
+    fun `onFieldEmptied does nothing when not dismissed`() {
+        whenever(tracker.isDismissed()).thenReturn(false)
+
+        coordinator.onFieldEmptied(isViewReady = true)
+
+        verify(tracker, never()).clearDismissal()
+        assertEquals(0, displayCallCount)
+    }
+
+    @Test
+    fun `onFieldEmptied ends dismissal and shows held response when view ready`() {
+        val suggestion = mock<InlineSuggestion>()
+        val held = mock<InlineSuggestionsResponse>()
+        whenever(held.inlineSuggestions).thenReturn(listOf(suggestion))
+        whenever(tracker.isDismissed()).thenReturn(true)
+        whenever(tracker.clearDismissal()).thenReturn(held)
+
+        coordinator.onFieldEmptied(isViewReady = true)
+
+        assertEquals(1, displayCallCount)
+        assertEquals(listOf(suggestion), lastDisplayedSuggestions)
+    }
+
+    @Test
+    fun `onFieldEmptied buffers held response when view not ready`() {
+        val held = mock<InlineSuggestionsResponse>()
+        whenever(held.inlineSuggestions).thenReturn(listOf(mock()))
+        whenever(tracker.isDismissed()).thenReturn(true)
+        whenever(tracker.clearDismissal()).thenReturn(held)
+
+        coordinator.onFieldEmptied(isViewReady = false)
+
+        verify(tracker).bufferResponse(held)
+        assertEquals(0, displayCallCount)
+    }
+
+    @Test
+    fun `onFieldEmptied with nothing held ends dismissal so next response displays`() {
+        whenever(tracker.isDismissed()).thenReturn(true)
+        whenever(tracker.clearDismissal()).thenReturn(null)
+
+        coordinator.onFieldEmptied(isViewReady = true)
+
+        verify(tracker).clearDismissal()
+        assertEquals(0, displayCallCount)
+    }
+
+    @Test
     fun `cleanup delegates to tracker`() {
         coordinator.cleanup()
 

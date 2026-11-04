@@ -1834,6 +1834,9 @@ open class UrikInputMethodService :
             candidatesStart,
             candidatesEnd
         )
+        if (newSelStart == 0 && newSelEnd == 0 && outputBridge.safeGetTextAfterCursor(1).isEmpty()) {
+            autofillCoordinator.onFieldEmptied(swipeKeyboardView != null)
+        }
         onUpdateSelectionHandler.handle(newSelStart, newSelEnd, candidatesStart, candidatesEnd)
     }
 
