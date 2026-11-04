@@ -952,13 +952,20 @@ constructor(
         if (!isInitialized || isDestroyed) return
         val indicator = getOrCreateDegradedIndicator()
         if (degraded) {
-            if (indicator.parent == null) {
-                suggestionBar?.addView(indicator, 0)
-            }
+            suggestionBar?.let { bar -> if (indicator.parent !== bar) bar.addDetached(indicator, 0) }
             indicator.visibility = VISIBLE
         } else {
             indicator.visibility = GONE
         }
+    }
+
+    /**
+     * Adds a long-lived indicator view, first detaching it from any previous parent.
+     * Indicators outlive suggestion bar rebuilds, so they may still be attached to an old bar.
+     */
+    private fun ViewGroup.addDetached(child: View, index: Int) {
+        (child.parent as? ViewGroup)?.removeView(child)
+        addView(child, index)
     }
 
     fun setOnTraceFlagClickListener(listener: () -> Unit) {
@@ -971,8 +978,8 @@ constructor(
         if (!show && traceFlagView == null) return
         val flag = getOrCreateTraceFlag()
         if (show) {
-            if (flag.parent == null && !isShowingAutofillSuggestions) {
-                suggestionBar?.addView(flag, 0)
+            if (!isShowingAutofillSuggestions) {
+                suggestionBar?.let { bar -> if (flag.parent !== bar) bar.addDetached(flag, 0) }
             }
             flag.visibility = VISIBLE
         } else {
@@ -1020,13 +1027,13 @@ constructor(
 
             degradedIndicatorView?.let { indicator ->
                 if (indicator.visibility == VISIBLE) {
-                    bar.addView(indicator, 0)
+                    bar.addDetached(indicator, 0)
                 }
             }
 
             traceFlagView?.let { flag ->
                 if (flag.visibility == VISIBLE) {
-                    bar.addView(flag, 0)
+                    bar.addDetached(flag, 0)
                 }
             }
 
