@@ -16,6 +16,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InlineSuggestion
 import android.view.inputmethod.InlineSuggestionsRequest
 import android.view.inputmethod.InlineSuggestionsResponse
+import android.view.inputmethod.InputConnection
 import android.widget.LinearLayout
 import android.widget.inline.InlinePresentationSpec
 import androidx.annotation.VisibleForTesting
@@ -30,6 +31,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.urik.keyboard.KeyboardConstants.AutofillConstants.MAX_PASSWORD_INLINE_SUGGESTIONS
 import com.urik.keyboard.data.KeyboardRepository
+import com.urik.keyboard.diagnostics.InputTrace
+import com.urik.keyboard.diagnostics.InputTraceProvider
+import com.urik.keyboard.diagnostics.event
 import com.urik.keyboard.model.KeyboardDisplayMode
 import com.urik.keyboard.model.KeyboardEvent
 import com.urik.keyboard.model.KeyboardKey
@@ -105,6 +109,9 @@ open class UrikInputMethodService :
     KeyEventHandler,
     ClipboardPanelHost,
     SuggestionPipelineHost {
+    /** Local typing recorder; a no-op outside the diagnostic build type. */
+    internal val inputTrace: InputTrace by lazy { InputTraceProvider.get(this) }
+
     @Inject
     lateinit var repository: KeyboardRepository
 
@@ -225,6 +232,12 @@ open class UrikInputMethodService :
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
 
+    /**
+     * Single choke point for every edit sent to the app. In the diagnostic build this
+     * returns a recording wrapper; elsewhere it returns the connection unchanged.
+     */
+    override fun getCurrentInputConnection(): InputConnection? = inputTrace.wrap(super.getCurrentInputConnection())
+
     override fun showSuggestions(): Boolean = currentSettings.showSuggestions
     override fun effectiveSuggestionCount(): Int = currentSettings.effectiveSuggestionCount
     override fun getKeyboardState(): KeyboardState = viewModel.state.value
@@ -337,6 +350,7 @@ open class UrikInputMethodService :
                         }
 
                         override fun updateSuggestions(suggestions: List<String>) {
+                            inputTrace.event("suggestions") { mapOf("list" to suggestions) }
                             candidateBarController.updateSuggestions(suggestions)
                         }
 
@@ -398,7 +412,8 @@ open class UrikInputMethodService :
                 inputState = inputState,
                 outputBridge = outputBridge,
                 imeStateCoordinator = imeStateCoordinator,
-                onCheckAutoCapitalization = ::checkAutoCapitalization
+                onCheckAutoCapitalization = ::checkAutoCapitalization,
+                trace = inputTrace
             )
 
             suggestionPipeline =
@@ -420,6 +435,7 @@ open class UrikInputMethodService :
                 KeyboardLayoutManager(
                     context = this,
                     onKeyClick = { key ->
+                        inputTrace.event("key") { mapOf("key" to key.toString()) }
                         inputState.clearBigramPredictions()
                         keyEventRouter.route(key)
                     },
@@ -753,10 +769,12 @@ open class UrikInputMethodService :
                     recentEmojiProvider
                 )
                 setOnKeyClickListener { key ->
+                    inputTrace.event("key") { mapOf("key" to key.toString()) }
                     inputState.clearBigramPredictions()
                     keyEventRouter.route(key)
                 }
                 setOnSwipeWordListener { validatedWord -> handleSwipeWord(validatedWord) }
+                setOnTraceFlagClickListener { inputTrace.marker() }
                 setOnSuggestionClickListener { suggestion -> handleSuggestionSelected(suggestion) }
                 setOnSuggestionLongPressListener { suggestion ->
                     handleSuggestionRemoval(
@@ -1197,6 +1215,7 @@ open class UrikInputMethodService :
         }
 
         applyFieldTypeFromEditorInfo(info)
+        swipeKeyboardView?.showTraceFlag(inputTrace.enabled)
 
         val targetMode = KeyboardModeUtils.determineTargetMode(info, viewModel.state.value.currentMode)
         if (targetMode != viewModel.state.value.currentMode) {
@@ -1385,9 +1404,20 @@ open class UrikInputMethodService :
 
     private fun handleNonLetterInput(char: String) = nonLetterInputHandler.handle(char)
 
-    private fun handleSwipeWord(validatedWord: String) = swipeWordHandler.handle(validatedWord)
+    private fun handleSwipeWord(validatedWord: String) {
+        inputTrace.event("swipe") { mapOf("word" to validatedWord) }
+        swipeWordHandler.handle(validatedWord)
+    }
 
     private fun handleSuggestionSelected(suggestion: String) {
+        inputTrace.event("suggestion_tap") {
+            mapOf(
+                "word" to suggestion,
+                "buffer" to inputState.displayBuffer,
+                "region_start" to inputState.composingRegionStart,
+                "post_commit" to (inputState.postCommitReplacementState != null)
+            )
+        }
         serviceScope.launch {
             if (inputState.requiresDirectCommit) {
                 return@launch
@@ -1676,6 +1706,22 @@ open class UrikInputMethodService :
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
+
+        inputTrace.startField(
+            packageName = attribute?.packageName,
+            fields =
+            if (inputTrace.recording) {
+                mapOf(
+                    "restarting" to restarting,
+                    "input_type" to "0x" + Integer.toHexString(attribute?.inputType ?: 0),
+                    "ime_options" to "0x" + Integer.toHexString(attribute?.imeOptions ?: 0),
+                    "sel" to listOf(attribute?.initialSelStart, attribute?.initialSelEnd)
+                )
+            } else {
+                emptyMap()
+            },
+            secure = InputFieldClassifier.classify(attribute).isSecureField
+        )
 
         if (::layoutManager.isInitialized) {
             layoutManager.stopAcceleratedBackspace()

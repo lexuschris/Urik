@@ -1,6 +1,9 @@
 package com.urik.keyboard.service
 
 import androidx.annotation.VisibleForTesting
+import com.urik.keyboard.diagnostics.InputTrace
+import com.urik.keyboard.diagnostics.NoOpInputTrace
+import com.urik.keyboard.diagnostics.event
 import com.urik.keyboard.utils.CursorEditingUtils
 import com.urik.keyboard.utils.SelectionChangeResult
 
@@ -8,10 +11,34 @@ class OnUpdateSelectionHandler(
     private val inputState: InputStateManager,
     private val outputBridge: OutputBridge,
     private val imeStateCoordinator: ImeStateCoordinator,
-    private val onCheckAutoCapitalization: (textBefore: String) -> Unit
+    private val onCheckAutoCapitalization: (textBefore: String) -> Unit,
+    private val trace: InputTrace = NoOpInputTrace
 ) {
+    private var lastSelectionResult: SelectionChangeResult? = null
+
     fun handle(newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
-        if (handleDirectCommitInProgress()) return
+        val bufferBefore = if (trace.enabled) inputState.displayBuffer else ""
+        val regionStartBefore = inputState.composingRegionStart
+        val branch = route(newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        trace.event(TRACE_EVENT) {
+            mapOf(
+                "sel" to listOf(newSelStart, newSelEnd),
+                "cand" to listOf(candidatesStart, candidatesEnd),
+                "branch" to branch,
+                "result" to lastSelectionResult?.let { it::class.simpleName },
+                "buffer_before" to bufferBefore,
+                "region_start_before" to regionStartBefore,
+                "buffer_after" to inputState.displayBuffer,
+                "region_start_after" to inputState.composingRegionStart
+            )
+        }
+    }
+
+    /** Handles the selection update and returns the name of the branch that handled it. */
+    @Suppress("ReturnCount", "CyclomaticComplexMethod", "LongMethod")
+    private fun route(newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int): String {
+        lastSelectionResult = null
+        if (handleDirectCommitInProgress()) return "direct_commit_in_progress"
 
         val selectionResult =
             inputState.selectionStateTracker.updateSelection(
@@ -20,6 +47,7 @@ class OnUpdateSelectionHandler(
                 candidatesStart = candidatesStart,
                 candidatesEnd = candidatesEnd
             )
+        lastSelectionResult = selectionResult
 
         if (newSelStart == 0 && newSelEnd == 0) {
             val textBefore = outputBridge.safeGetTextBeforeCursor(50)
@@ -42,14 +70,14 @@ class OnUpdateSelectionHandler(
             }
         }
 
-        if (handleAppSelectionExtended(selectionResult, newSelStart)) return
+        if (handleAppSelectionExtended(selectionResult, newSelStart)) return "app_selection_extended"
 
-        if (handleUrlOrEmailField()) return
+        if (handleUrlOrEmailField()) return "url_or_email_field"
 
-        if (handleNonSequentialJump(selectionResult, newSelStart, newSelEnd)) return
+        if (handleNonSequentialJump(selectionResult, newSelStart, newSelEnd)) return "non_sequential_jump"
 
         val ousConsumed = inputState.tryConsumeTypingOus(newSelStart, candidatesStart, candidatesEnd)
-        if (handleTypingOusConsumed(ousConsumed, newSelStart)) return
+        if (handleTypingOusConsumed(ousConsumed, newSelStart)) return "typing_ous_consumed"
 
         val hasComposingText = candidatesStart != -1 && candidatesEnd != -1
         val cursorInComposingRegion =
@@ -72,39 +100,39 @@ class OnUpdateSelectionHandler(
                 newSelEnd >= inputState.composingRegionStart &&
                 newSelEnd <= trackedComposingEnd
 
-        if (handleActivelyEditing(newSelStart)) return
+        if (handleActivelyEditing(newSelStart)) return "actively_editing"
 
         if (selectionResult.requiresStateInvalidation()) {
             if (cursorInComposingRegion || cursorInTrackedComposingRegion) {
                 inputState.lastKnownCursorPosition = newSelStart
-                return
+                return if (cursorInComposingRegion) "invalidation_in_region" else "invalidation_in_tracked_region"
             }
-            if (inputState.displayBuffer.isEmpty() || !outputBridge.reassertComposingRegion(newSelStart)) {
-                invalidateComposingStateOnCursorJump()
-            }
+            val reasserted = inputState.displayBuffer.isNotEmpty() && outputBridge.reassertComposingRegion(newSelStart)
+            if (!reasserted) invalidateComposingStateOnCursorJump()
             inputState.lastKnownCursorPosition = newSelStart
-            return
+            return if (reasserted) "invalidation_reassert" else "invalidation_invalidate"
         }
 
         if (hasComposingText && !cursorInComposingRegion) {
             invalidateComposingStateOnCursorJump()
             inputState.lastKnownCursorPosition = newSelStart
-            return
+            return "outside_composing_region"
         }
 
         if (!hasComposingText && (inputState.wordState.hasContent || inputState.displayBuffer.isNotEmpty())) {
-            if (inputState.displayBuffer.isEmpty() || !outputBridge.reassertComposingRegion(newSelStart)) {
-                invalidateComposingStateOnCursorJump()
-            }
+            val reasserted = inputState.displayBuffer.isNotEmpty() && outputBridge.reassertComposingRegion(newSelStart)
+            if (!reasserted) invalidateComposingStateOnCursorJump()
             inputState.lastKnownCursorPosition = newSelStart
-            return
+            return if (reasserted) "no_region_reassert" else "no_region_invalidate"
         }
 
         inputState.lastKnownCursorPosition = newSelStart
 
         if (!hasComposingText && !inputState.isActivelyEditing && newSelStart == newSelEnd) {
             outputBridge.attemptRecompositionAtCursor(newSelStart)
+            return "recompose_attempt"
         }
+        return "in_region_no_op"
     }
 
     @VisibleForTesting
@@ -157,4 +185,8 @@ class OnUpdateSelectionHandler(
     }
 
     private fun invalidateComposingStateOnCursorJump() = imeStateCoordinator.invalidateComposingStateOnCursorJump()
+
+    companion object {
+        const val TRACE_EVENT = "sel"
+    }
 }

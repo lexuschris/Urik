@@ -7,6 +7,8 @@ import com.urik.keyboard.data.database.KeyboardDatabase
 import com.urik.keyboard.data.database.LearnedWordDao
 import com.urik.keyboard.data.database.UserWordBigramDao
 import com.urik.keyboard.data.database.UserWordFrequencyDao
+import com.urik.keyboard.diagnostics.InputTrace
+import com.urik.keyboard.diagnostics.InputTraceProvider
 import com.urik.keyboard.service.BlacklistRepository
 import com.urik.keyboard.service.CharacterVariationService
 import com.urik.keyboard.service.DictionaryBackupManager
@@ -42,6 +44,11 @@ object KeyboardModule {
     @Singleton
     @ApplicationScope
     fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** Local typing recorder; a no-op outside the diagnostic build type. */
+    @Provides
+    @Singleton
+    fun provideInputTrace(@ApplicationContext context: Context): InputTrace = InputTraceProvider.get(context)
 
     @Provides
     @Singleton

@@ -1,6 +1,9 @@
 package com.urik.keyboard.service
 
 import com.urik.keyboard.KeyboardConstants.TextProcessingConstants
+import com.urik.keyboard.diagnostics.InputTrace
+import com.urik.keyboard.diagnostics.NoOpInputTrace
+import com.urik.keyboard.diagnostics.event
 import com.urik.keyboard.utils.UrlEmailDetector
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,11 +19,37 @@ sealed class AutocorrectDecision {
 @Singleton
 class AutoCorrectionEngine
 @Inject
-constructor(private val textInputProcessor: TextInputProcessor) {
+constructor(
+    private val textInputProcessor: TextInputProcessor,
+    private val trace: InputTrace = NoOpInputTrace
+) {
     private fun isSafeForAutocorrect(suggestion: SpellingSuggestion): Boolean =
         suggestion.word.all { it.isLetter() || it == '\'' || it == '-' }
 
     suspend fun decide(
+        buffer: String,
+        spellCheckEnabled: Boolean,
+        autocorrectionEnabled: Boolean,
+        pauseOnMisspelledWord: Boolean,
+        lastAutocorrection: LastAutocorrection?,
+        textBeforeCursor: String,
+        nextChar: String
+    ): AutocorrectDecision = decideUntraced(
+        buffer,
+        spellCheckEnabled,
+        autocorrectionEnabled,
+        pauseOnMisspelledWord,
+        lastAutocorrection,
+        textBeforeCursor,
+        nextChar
+    ).also { decision ->
+        trace.event("autocorrect") {
+            mapOf("input" to buffer, "next" to nextChar, "decision" to decision.toString())
+        }
+    }
+
+    @Suppress("LongParameterList")
+    private suspend fun decideUntraced(
         buffer: String,
         spellCheckEnabled: Boolean,
         autocorrectionEnabled: Boolean,

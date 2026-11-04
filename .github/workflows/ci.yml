@@ -155,5 +155,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Build release and diagnostic APKs
+        run: ./gradlew assembleRelease assembleDiagnostic --stacktrace
+
+      - name: Verify release APK contains no typing recorder
+        run: |
+          bash scripts/verify-no-recorder.sh --expect-present app/build/outputs/apk/diagnostic/app-diagnostic.apk
+          bash scripts/verify-no-recorder.sh app/build/outputs/apk/release/app-release*.apk

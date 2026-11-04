@@ -13,6 +13,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.google.android.material.appbar.MaterialToolbar
 import com.urik.keyboard.R
+import com.urik.keyboard.diagnostics.InputTraceProvider
 import com.urik.keyboard.settings.appearance.AppearanceFragment
 import com.urik.keyboard.settings.autocorrection.AutoCorrectionFragment
 import com.urik.keyboard.settings.languages.LanguagesFragment
@@ -202,6 +203,21 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 }
             }
         )
+
+        // Diagnostic build type only; release and debug builds have no recorder screen.
+        InputTraceProvider.settingsActivity?.let { diagnosticsActivity ->
+            screen.addPreference(
+                Preference(context).apply {
+                    key = "diagnostics"
+                    title = "Diagnostics"
+                    summary = "Local typing recorder (diagnostic build only)"
+                    setOnPreferenceClickListener {
+                        startActivity(Intent(context, diagnosticsActivity))
+                        true
+                    }
+                }
+            )
+        }
 
         preferenceScreen = screen
     }
