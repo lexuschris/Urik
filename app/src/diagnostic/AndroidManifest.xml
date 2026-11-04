@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diagnostic build type only: the recorder screen does not exist in release builds. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".diagnostics.DiagnosticsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Urik"
+            android:label="Diagnostics" />
+    </application>
+</manifest>

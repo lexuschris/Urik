@@ -52,6 +52,23 @@ android {
             isJniDebuggable = false
             isShrinkResources = true
         }
+
+        // Release-like build with the local typing recorder compiled in (src/diagnostic).
+        // Release and debug get a no-op recorder from their own source sets, so the
+        // recorder classes cannot exist in those APKs. Until the fork has its own release
+        // key, this is signed with the debug key so it installs over the debug build
+        // in place and keeps learned words.
+        create("diagnostic") {
+            initWith(getByName("release"))
+            versionNameSuffix = "-diag"
+            signingConfig =
+                if (System.getenv("RELEASE_KEYSTORE_PATH") != null) {
+                    signingConfigs.getByName("release")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
+            matchingFallbacks += listOf("release")
+        }
     }
 
     compileOptions {
@@ -106,6 +123,14 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)
+    }
+}
+
+// AGP only creates host (unit) tests for the debug build type by default. Also run them
+// for the diagnostic build type so the recorder's own tests in src/testDiagnostic execute.
+androidComponents {
+    beforeVariants(selector().withBuildType("diagnostic")) { variant ->
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
 }
 

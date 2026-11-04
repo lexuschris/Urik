@@ -148,6 +148,8 @@ constructor(
 
     private var autofillIndicatorIcon: TextView? = null
     private var degradedIndicatorView: TextView? = null
+    private var traceFlagView: TextView? = null
+    private var onTraceFlagClick: (() -> Unit)? = null
     private var isShowingAutofillSuggestions = false
     private var autofillScrollContainer: android.widget.HorizontalScrollView? = null
     private var autofillScrollContent: LinearLayout? = null
@@ -959,6 +961,51 @@ constructor(
         }
     }
 
+    fun setOnTraceFlagClickListener(listener: () -> Unit) {
+        onTraceFlagClick = listener
+    }
+
+    /** Diagnostic builds: red flag in the suggestion bar while the typing recorder is on. */
+    fun showTraceFlag(show: Boolean) {
+        if (!isInitialized || isDestroyed) return
+        if (!show && traceFlagView == null) return
+        val flag = getOrCreateTraceFlag()
+        if (show) {
+            if (flag.parent == null && !isShowingAutofillSuggestions) {
+                suggestionBar?.addView(flag, 0)
+            }
+            flag.visibility = VISIBLE
+        } else {
+            flag.visibility = GONE
+        }
+    }
+
+    private fun getOrCreateTraceFlag(): TextView {
+        traceFlagView?.let { return it }
+
+        return TextView(context).apply {
+            text = TRACE_FLAG_TEXT
+            contentDescription = "Mark problem in typing recording"
+            val suggestionTextSize = calculateResponsiveSuggestionTextSize()
+            textSize = suggestionTextSize
+            val padding = (suggestionTextSize * context.resources.displayMetrics.density * 0.4f).toInt()
+            setPadding(padding, padding, padding, padding)
+            layoutParams =
+                LinearLayout
+                    .LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        0f
+                    ).apply { gravity = Gravity.CENTER_VERTICAL }
+            setOnClickListener { view ->
+                onTraceFlagClick?.invoke()
+                (view as TextView).text = TRACE_FLAG_MARKED_TEXT
+                view.postDelayed({ view.text = TRACE_FLAG_TEXT }, TRACE_FLAG_FEEDBACK_MS)
+            }
+            traceFlagView = this
+        }
+    }
+
     private fun updateSuggestionBarContent(suggestions: List<String> = emptyList()) {
         if (isDestroyed) return
 
@@ -974,6 +1021,12 @@ constructor(
             degradedIndicatorView?.let { indicator ->
                 if (indicator.visibility == VISIBLE) {
                     bar.addView(indicator, 0)
+                }
+            }
+
+            traceFlagView?.let { flag ->
+                if (flag.visibility == VISIBLE) {
+                    bar.addView(flag, 0)
                 }
             }
 
@@ -2022,6 +2075,7 @@ constructor(
         emojiSearchInput = null
         cachedCursorDrawable = null
         degradedIndicatorView = null
+        traceFlagView = null
         autofillIndicatorIcon = null
         autofillScrollContainer = null
         autofillScrollContent = null
@@ -2111,6 +2165,9 @@ constructor(
     }
 
     companion object {
+        private const val TRACE_FLAG_TEXT = "🚩"
+        private const val TRACE_FLAG_MARKED_TEXT = "✔"
+        private const val TRACE_FLAG_FEEDBACK_MS = 800L
         private const val SEARCH_DEBOUNCE_MS = 300L
         private const val MIN_LETTER_SPACING_CENTER = -0.02f
         private const val MIN_LETTER_SPACING_PERIPHERAL = -0.03f
